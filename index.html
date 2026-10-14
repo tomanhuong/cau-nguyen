@@ -130,6 +130,13 @@ table.grid{border-collapse:separate;border-spacing:4px;min-width:480px;width:100
 .errs li{font-size:14.5px;padding:8px 11px;border-radius:8px;background:var(--amber-bg);border-left:3px solid var(--amber);}
 .errs li a{font-family:var(--mono);font-size:12px;}
 .hint{font-size:14px;color:var(--ink-faint);font-style:italic;}
+/* câu Lời Chúa của ngày, đầu trang */
+.verse{display:flex;flex-direction:column;gap:8px;width:100%;text-align:left;padding:18px 18px 16px;border-radius:var(--radius);
+  background:linear-gradient(135deg,rgba(255,212,0,.11),rgba(0,167,157,.08));border:1px solid rgba(255,212,0,.30);font-family:var(--serif);color:var(--ink);}
+.verse .vk{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--gold);}
+.verse .vq{font-size:22px;line-height:1.5;font-style:italic;text-wrap:pretty;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;}
+.verse .vr{font-family:var(--mono);font-size:12px;color:var(--ink-dim);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+@media(max-width:480px){.verse .vq{font-size:20px;}}
 /* kết nối máy chủ, cài đặt lần đầu, nạp nội dung */
 .gate-box .f{display:flex;flex-direction:column;gap:5px;text-align:left;font-family:var(--mono);font-size:11.5px;color:var(--ink-dim);letter-spacing:.02em;}
 .gate-box .f input{text-align:left;}
@@ -190,6 +197,7 @@ table.grid{border-collapse:separate;border-spacing:4px;min-width:480px;width:100
 <div id="vHome" class="hidden">
   <div class="shell">
     <div class="topbar"><span id="whoLbl"></span><span class="sync" id="sync"></span><button class="icon-btn" id="btnMenu" aria-label="Mở menu">☰</button></div>
+    <button id="verse" class="verse hidden" aria-label="Lời Chúa hôm nay — mở bài I-nhã"><span class="vk" id="verseK">✦ LỜI CHÚA HÔM NAY</span><span class="vq" id="verseQ"></span><span class="vr"><span id="verseR"></span><span>Đọc suy niệm ›</span></span></button>
     <div class="date-row">
       <button class="icon-btn" id="btnPrev" aria-label="Ngày trước">‹</button>
       <div class="date-main"><div class="d" id="dTitle"></div><div class="l" id="dLit"></div></div>
@@ -340,25 +348,46 @@ function vaoApp(){
   $('whoLbl').textContent='👤 '+S.member;
   S.homNay=homNayVN(); if(!S.ngay) S.ngay=S.homNay;
   show('vHome'); taiNgay(S.ngay);
+  setTimeout(function(){ taiNhieu(congNgay(homNayVN(),5),14).catch(function(){}); },1500); // tải ngầm 2 tuần tới
   if(S.sauCaiDat){ S.sauCaiDat=false; moQuanTri(); toast('Bước cuối: nạp nội dung cho app'); }
   goi('ping').then(function(r){ if(r&&r.ok){ S.members=r.thanhVien||S.members; ls('cn_members',JSON.stringify(S.members)); } }).catch(function(){});
 }
+function khoaNgay(){ var keys=[]; try{ for(var i=0;i<localStorage.length;i++){ var k=localStorage.key(i); if(k&&k.indexOf('cn_day:')===0) keys.push(k); } }catch(e){} return keys.sort(); }
 function luuDem(ngay,data){
-  ls('cn_day:'+ngay,JSON.stringify(data));
-  try{ var keys=[]; for(var i=0;i<localStorage.length;i++){ var k=localStorage.key(i); if(k&&k.indexOf('cn_day:')===0) keys.push(k); }
-    keys.sort(); var giu=9; // giữ 9 ngày gần nhất
-    while(keys.length>giu){ ls(keys.shift(),null); } }catch(e){}
+  data._luc=Date.now(); ls('cn_day:'+ngay,JSON.stringify(data));
+  var keys=khoaNgay(), giu=40; // giữ 40 ngày trên máy
+  while(keys.length>giu){ ls(keys.shift(),null); }
 }
+function xoaDemMay(){ khoaNgay().forEach(function(k){ ls(k,null); }); }
+// Tải nhiều ngày một lần (một lần gọi máy chủ), lưu sẵn trên máy
+function taiNhieu(tu,n){
+  return goi('days',{tu:tu,soNgay:n}).then(function(r){
+    if(r&&r.ok&&r.ngay) Object.keys(r.ngay).forEach(function(k){ if(r.ngay[k]&&r.ngay[k].ok) luuDem(k,r.ngay[k]); });
+    return r;
+  });
+}
+// Ngày kề bên chưa có trên máy thì tải ngầm trước, để bấm tiếp là hiện ngay
+function taiTruoc(ngay){
+  if(S.dangTaiTruoc) return;
+  if(![-1,1,2,3].some(function(k){ return !ls('cn_day:'+congNgay(ngay,k)); })) return;
+  S.dangTaiTruoc=true;
+  taiNhieu(congNgay(ngay,-3),10).then(function(){ S.dangTaiTruoc=false; },function(){ S.dangTaiTruoc=false; });
+}
+var MOI_PHUT=30*60000; // bản lưu trên máy dưới 30 phút thì không hỏi lại máy chủ
 function taiNgay(ngay){
   S.ngay=ngay; $('homeErr').classList.add('hidden');
-  var dem=ls('cn_day:'+ngay), coDem=false;
-  if(dem){ try{ S.data=JSON.parse(dem); coDem=true; veHome(); }catch(e){} }
+  var dem=ls('cn_day:'+ngay), coDem=false, moi=false;
+  if(dem){ try{ S.data=JSON.parse(dem); coDem=true; moi=Date.now()-(S.data._luc||0)<MOI_PHUT; veHome(); }catch(e){} }
   if(!coDem){ S.data=null; veHome(); }
+  taiTruoc(ngay);
+  if(moi){ sync('ok'); return; }
   sync('busy');
-  goi('day',{ngay:ngay}).then(function(r){
+  // Tải luôn cả mấy ngày quanh ngày này, để bấm ngày trước/sau là hiện ngay
+  taiNhieu(congNgay(ngay,-2),7).then(function(r){
     if(S.ngay!==ngay) return;
-    if(!r||!r.ok){ sync('off'); baoLoi(r&&r.error==='ngay_khong_hop_le'?'Ngày không hợp lệ.':'Máy chủ báo lỗi: '+esc(r&&r.message||r&&r.error||'')); return; }
-    S.data=r; luuDem(ngay,r); sync('ok'); veHome();
+    var d=r&&r.ok&&r.ngay?r.ngay[ngay]:null;
+    if(!d||!d.ok){ sync('off'); baoLoi(r&&r.error==='ngay_khong_hop_le'?'Ngày không hợp lệ.':'Máy chủ báo lỗi: '+esc(r&&r.message||r&&r.error||'')); return; }
+    S.data=d; sync('ok'); veHome();
   }).catch(function(e){
     if(S.ngay!==ngay) return;
     sync('off');
@@ -372,7 +401,12 @@ function veHome(){
   var khac=S.ngay!==S.homNay;
   $('notToday').classList.toggle('hidden',!khac); $('notTodayTxt').textContent='Đang xem ngày '+ngayNgan(S.ngay)+' — chỉ để đọc';
   var d=S.data, c=$('cards');
-  if(!d){ $('dLit').textContent=''; c.innerHTML='<div class="card"><div class="hint">Đang tải bài của ngày…</div></div>'; return; }
+  if(!d){ $('dLit').textContent=''; $('verse').classList.add('hidden'); c.innerHTML='<div class="card"><div class="hint">Đang tải bài của ngày…</div></div>'; return; }
+  if(d.inha&&d.inha.loi_chua){
+    $('verseK').textContent=khac?'✦ LỜI CHÚA NGÀY '+ngayNgan(S.ngay):'✦ LỜI CHÚA HÔM NAY';
+    $('verseQ').textContent=d.inha.loi_chua; $('verseR').textContent=d.inha.trich_dan||'';
+    $('verse').classList.remove('hidden');
+  } else $('verse').classList.add('hidden');
   var L=d.lich;
   $('dLit').textContent=(L.tuan!==''&&L.tuan!=null?('Tuần '+L.tuan+' '):'')+L.mua+' · '+(L.tuanTV==='riêng'?'Thánh vịnh riêng':'Tuần '+L.tuanTV+' Thánh Vịnh')+(L.ghiChu?' · '+L.ghiChu:'');
   var thieu=d.kinhSang.phan.filter(function(p){return p.thieu;}).length;
@@ -382,7 +416,7 @@ function veHome(){
      '<button class="btn btn-gold" id="goKS">Đọc</button></div>';
   if(d.inha){
     h+='<div class="card ok"><div class="card-top"><span class="card-title">✝ 365 NGÀY I-NHÃ</span><span class="card-meta">'+esc(d.inha.ngay)+'</span></div>'+
-       '<div class="card-desc">'+esc(d.inha.loi_chua)+'</div><button class="btn btn-gold" id="goIN">Đọc</button></div>';
+       '<div class="card-desc">'+esc(d.inha.loi_thanh_inha||d.inha.suy_niem)+'</div><button class="btn btn-gold" id="goIN">Đọc</button></div>';
   } else {
     h+='<div class="card wa"><div class="card-top"><span class="card-title">✝ 365 NGÀY I-NHÃ</span></div><div class="card-warn">Bài ngày '+esc(d.inhaThieu)+' chưa có</div></div>';
   }
@@ -394,6 +428,7 @@ function veHome(){
   if($('goIN')) $('goIN').onclick=moInha;
   if($('goHT')) $('goHT').onclick=moHoiTam;
 }
+$('verse').onclick=function(){ if(S.data&&S.data.inha) moInha(); };
 $('btnPrev').onclick=function(){ taiNgay(congNgay(S.ngay,-1)); };
 $('btnNext').onclick=function(){ taiNgay(congNgay(S.ngay,1)); };
 $('btnToday').onclick=function(){ taiNgay(homNayVN()); };
@@ -418,7 +453,7 @@ $('btnMenu').onclick=function(){
     '<button class="btn btn-ghost" id="mShare">📤 Gửi app cho người nhà</button>'+
     '<button class="btn btn-ghost" id="mNo">Đóng</button></div>');
   $('mWho').onclick=function(){ dongSheet(); ls('cn_member',null); S.member=null; S.members=JSON.parse(ls('cn_members')||'[]'); chonNguoi(); };
-  $('mRef').onclick=function(){ dongSheet(); ls('cn_day:'+S.ngay,null); taiNgay(S.ngay); };
+  $('mRef').onclick=function(){ dongSheet(); xoaDemMay(); taiNgay(S.ngay); };
   $('mAdm').onclick=function(){ dongSheet(); moQuanTri(); };
   $('mShare').onclick=moChiaSe;
   $('mNo').onclick=dongSheet;
@@ -774,7 +809,7 @@ function taiKho(action){
   goi(action).then(function(r){
     if(!r.ok){ $('adBody').innerHTML='<div class="notice red">Máy chủ báo lỗi: '+esc(r.message||r.error)+'</div>'; return; }
     veKho(r);
-    if(action==='admin_lam_moi') toast('Đã làm mới — app đọc nội dung mới nhất');
+    if(action==='admin_lam_moi'){ xoaDemMay(); toast('Đã làm mới — app đọc nội dung mới nhất'); }
   }).catch(function(){ $('adBody').innerHTML='<div class="notice red">Không kết nối được. Kiểm tra mạng rồi bấm ⟳ Làm mới.</div>'; });
 }
 function veKho(r){
@@ -823,7 +858,7 @@ function guiNap(action,rows,k,ten){
   return goi(action,{rows:rows}).then(function(r){
     if(!r.ok){ baoNap(k,'err','Máy chủ báo lỗi: '+esc(r.message||r.error)); return; }
     S.nap[k]={loai:'ok',html:'✓ Đã lưu '+r.daNap+' dòng '+ten+(r.boQua?' · bỏ qua '+r.boQua+' dòng sai':'')+'.'};
-    veKho(r); toast('Đã nạp '+ten);
+    xoaDemMay(); veKho(r); toast('Đã nạp '+ten);
   }).catch(function(){ baoNap(k,'err','Không kết nối được máy chủ. Kiểm tra mạng rồi chọn tệp lại.'); });
 }
 function napPdf(file){
