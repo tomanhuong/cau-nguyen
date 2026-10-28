@@ -1401,8 +1401,8 @@ function veKho(r){
       '<label class="btn btn-teal" for="fXlsx">Chọn tệp Excel…</label><input class="vh" type="file" id="fXlsx" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">'+
       trangThai(N.x)+
     '</div>'+
-    '<div class="nap"><span class="nap-t">3 · SÁCH CHÂM NGÔN MỖI NGÀY '+(r.chamNgon>=365?'<span class="ok-t">✓ đã có</span>':'')+'</span>'+
-      '<div class="hint">Chọn tệp PDF "Châm-Ngôn & Khôn-Ngoan diễn ca". App chia trọn sách Châm Ngôn thành 365 đoạn, mỗi ngày một đoạn sau Kinh Lạy Cha. Đã có '+(r.chamNgon||0)+'/365 ngày.</div>'+
+    '<div class="nap"><span class="nap-t">3 · SÁCH CHÂM NGÔN MỖI NGÀY '+(r.chamNgon>=31?'<span class="ok-t">✓ đã có</span>':'')+'</span>'+
+      '<div class="hint">Chọn tệp PDF "Châm-Ngôn & Khôn-Ngoan diễn ca". Mỗi ngày đọc một chương sau Kinh Lạy Cha, theo ngày trong tháng (ngày 5 đọc chương 5). Đã có '+(r.chamNgon||0)+'/31 chương.</div>'+
       '<label class="btn btn-teal" for="fCn">Chọn tệp PDF Châm Ngôn…</label><input class="vh" type="file" id="fCn" accept="application/pdf,.pdf">'+
       trangThai(N.cn)+
     '</div></div>';
@@ -1559,33 +1559,14 @@ function parseChamNgon(pages){
   verses.forEach(function(v){ v.dong=v.dong.filter(Boolean); });
   return {verses:verses, soChuong:ch, warn:warn};
 }
-// Chia đều số dòng thơ cho từng ngày (quy hoạch động): không cắt giữa câu, tránh vắt qua hai chương, ưu tiên ngắt ở đầu mục
-function chiaNgay(verses,soNgay){
-  var N=verses.length, pre=[0]; verses.forEach(function(v,i){ pre.push(pre[i]+v.dong.length); });
-  var T=pre[N]/soNgay, MAXC=8, INF=1e15;
-  function phi(i,j){ // đoạn gồm câu i..j-1
-    var L=pre[j]-pre[i], c=(L-T)*(L-T);
-    if(verses[i].ch!==verses[j-1].ch) c+=80;
-    if(j<N&&verses[j].ch===verses[j-1].ch&&!verses[j].tieu) c+=2; // ngắt giữa mục: phạt nhẹ
-    return c;
-  }
-  var dp=[new Float64Array(N+1).fill(INF)], tr=[]; dp[0][0]=0;
-  for(var d=1; d<=soNgay; d++){
-    var cur=new Float64Array(N+1).fill(INF), t=new Int32Array(N+1).fill(-1), prev=dp[d-1];
-    for(var j=d; j<=N; j++) for(var k=1; k<=MAXC&&j-k>=d-1; k++){ var i=j-k; if(prev[i]>=INF) continue; var c=prev[i]+phi(i,j); if(c<cur[j]){ cur[j]=c; t[j]=i; } }
-    dp.push(cur); tr.push(t);
-  }
-  var out=[], j=N; for(var d=soNgay; d>=1; d--){ var i=tr[d-1][j]; out.unshift(verses.slice(i,j)); j=i; }
-  return out;
-}
-function ngayTrongNam(d){ var t=new Date(Date.UTC(2025,0,1)+d*86400000); return p2(t.getUTCMonth()+1)+'.'+p2(t.getUTCDate()); } // năm thường 365 ngày; 29/02 máy chủ dùng bài 28/02
-function hangChamNgon(D){
-  var rows=[];
-  D.forEach(function(g,d){
-    var k='cham-ngon:'+ngayTrongNam(d), a=g[0], b=g[g.length-1], n=0;
-    var tu=Math.min.apply(null,g.filter(function(v){ return v.ch===a.ch; }).map(function(v){ return v.tu; })), den=Math.max.apply(null,g.filter(function(v){ return v.ch===b.ch; }).map(function(v){ return v.den; }));
-    var them=function(vai,text){ rows.push({khoa:k,so_phan:'9',tieu_de_phan:n?'':'MỘT ĐOẠN SÁCH CHÂM NGÔN',tu_the:n?'':'Ngồi',thu_tu:String(++n),vai:vai,van_ban:text}); };
-    them('Hướng dẫn','Sách Châm Ngôn, chương '+a.ch+', câu '+tu+(den!==tu?'–'+den:'')+' (Châm-Ngôn diễn ca, Biển-Đức Đỗ Quang-Vinh). Hai người đọc luân phiên từng câu.');
+// Mỗi ngày một chương, theo ngày trong tháng: ngày 5 đọc chương 5 (tháng không có ngày 31 thì không đọc chương 31)
+function hangChamNgon(verses){
+  var rows=[], theoChuong={};
+  verses.forEach(function(v){ (theoChuong[v.ch]=theoChuong[v.ch]||[]).push(v); });
+  Object.keys(theoChuong).forEach(function(c){
+    var g=theoChuong[c], k='cham-ngon:'+p2(+c), n=0;
+    var them=function(vai,text){ rows.push({khoa:k,so_phan:'9',tieu_de_phan:n?'':'SÁCH CHÂM NGÔN · CHƯƠNG '+c,tu_the:n?'':'Ngồi',thu_tu:String(++n),vai:vai,van_ban:text}); };
+    them('Hướng dẫn','Sách Châm Ngôn, chương '+c+' (Châm-Ngôn diễn ca, Biển-Đức Đỗ Quang-Vinh). Hai người đọc luân phiên từng câu.');
     g.forEach(function(v,i){ if(v.tieu) them('Hướng dẫn',v.tieu); them(i%2?'B':'A',v.dong.join(' / ')); });
     them('Hướng dẫn','Thinh lặng khoảng 30 giây. Mỗi người nói một câu mình giữ lại cho hôm nay.');
   });
@@ -1598,7 +1579,7 @@ function napChamNgon(file){
   .then(function(pages){
     var kq=parseChamNgon(pages);
     if(kq.soChuong<31||kq.verses.length<800){ baoNap('cn','err','Không thấy đủ 31 chương Châm Ngôn trong tệp này (thấy '+kq.soChuong+' chương, '+kq.verses.length+' câu). Cần tệp "Châm-Ngôn & Khôn-Ngoan diễn ca".'); return; }
-    return guiNap('admin_nap_ks',hangChamNgon(chiaNgay(kq.verses,365)),'cn','đoạn Châm Ngôn (365 ngày)');
+    return guiNap('admin_nap_ks',hangChamNgon(kq.verses),'cn','Châm Ngôn (31 chương)');
   }).catch(function(e){ baoNap('cn','err','Không đọc được tệp: '+esc(e&&e.message||e)); });
 }
 $('adClose').onclick=function(){ show('vHome'); };
